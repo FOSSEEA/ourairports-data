@@ -1,0 +1,62 @@
+name: Generate Airports Lite
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at 00:00 UTC
+  workflow_dispatch:     # Manual trigger
+  push:
+    branches:
+      - main
+
+jobs:
+  process-csv:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full commit history
+
+      # Step 2: Sync upstream changes
+      - name: Sync upstream
+        run: |
+          git remote add upstream https://github.com/davidmegginson/ourairports-data.git
+          git fetch upstream
+          git merge upstream/main
+
+      # Step 3: Install CSV processing tools (Python + pandas)
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install pandas
+
+      # Step 4: Process CSV data
+      - name: Process CSV
+        run: |
+          python -c "
+          import pandas as pd
+          df = pd.read_csv('airports.csv', dtype=str, keep_default_na=False)
+          
+          # Filter conditions:
+          # 1. Keep records with either icao_code or iata_code
+          # 2. Exclude closed airports
+          filtered = df[
+              (df['icao_code'].str.strip().ne('') | df['iata_code'].str.strip().ne('')) &
+              (df['type'] != 'closed')
+          ]
+          
+          # Maintain original column order
+          filtered.to_csv('airports-lite.csv', index=False, columns=df.columns)
+          "
+
+      # Step 5: Commit changes
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-generated airports-lite.csv"
+          file_pattern: airports-lite.csv
+          branch: main
